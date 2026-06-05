@@ -13,6 +13,12 @@ export default function App() {
   const [scorecard, setScorecard] = useState({});
   const [isPwa, setIsPwa] = useState(false);
 
+  // PWA Installability Diagnostics States
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [swActive, setSwActive] = useState(false);
+  const [manifestValid, setManifestValid] = useState(false);
+  const [beforeInstallFired, setBeforeInstallFired] = useState(false);
+
   // Load Scorecard from LocalStorage on mount
   useEffect(() => {
     const cached = localStorage.getItem('pwa_ios_poc_scorecard');
@@ -42,6 +48,66 @@ export default function App() {
     }
   }, []);
 
+  // Listen for Chrome PWA Install Prompt
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setBeforeInstallFired(true);
+      console.log('[PWA Diagnostic] beforeinstallprompt event caught!');
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  // Verify Service Worker and Manifest status dynamically
+  useEffect(() => {
+    const checkSW = async () => {
+      if ('serviceWorker' in navigator) {
+        try {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          const hasMainSw = regs.some(r => r.scope === window.location.origin + '/');
+          setSwActive(hasMainSw);
+        } catch (e) {
+          setSwActive(false);
+        }
+      }
+    };
+
+    const checkManifest = async () => {
+      try {
+        const res = await fetch('/manifest.webmanifest');
+        if (res.ok) {
+          const json = await res.json();
+          // Check for required installability properties
+          const isValid = !!(
+            json.name && 
+            json.short_name && 
+            json.start_url && 
+            json.display === 'standalone' && 
+            json.theme_color && 
+            json.background_color &&
+            json.icons &&
+            json.icons.some(i => i.sizes === '192x192') &&
+            json.icons.some(i => i.sizes === '512x512')
+          );
+          setManifestValid(isValid);
+        } else {
+          setManifestValid(false);
+        }
+      } catch (e) {
+        setManifestValid(false);
+      }
+    };
+
+    checkSW();
+    checkManifest();
+    const interval = setInterval(checkSW, 2500); // Poll SW state to catch active activations
+    return () => clearInterval(interval);
+  }, []);
+
   // Update specific scorecard feature
   const updateScorecard = (featureId, status, notes) => {
     const updated = {
@@ -64,7 +130,17 @@ export default function App() {
   const renderScreen = () => {
     switch (activeScreen) {
       case 'dashboard':
-        return <Dashboard scorecard={scorecard} onNavigate={setActiveScreen} />;
+        return (
+          <Dashboard 
+            scorecard={scorecard} 
+            onNavigate={setActiveScreen} 
+            swActive={swActive}
+            manifestValid={manifestValid}
+            deferredPrompt={deferredPrompt}
+            beforeInstallFired={beforeInstallFired}
+            clearDeferredPrompt={() => setDeferredPrompt(null)}
+          />
+        );
       case 'notification':
         return (
           <PushNotificationTest 

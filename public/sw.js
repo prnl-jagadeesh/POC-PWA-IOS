@@ -2,13 +2,10 @@ const CACHE_NAME = 'pwa-ios-poc-v1';
 const ASSETS = [
   '/',
   '/index.html',
-  '/manifest.json',
+  '/manifest.webmanifest',
   '/icon.svg',
   '/icon-192.png',
-  '/icon-512.png',
-  '/src/main.jsx',
-  '/src/App.jsx',
-  '/src/index.css'
+  '/icon-512.png'
 ];
 
 // Install Service Worker and cache essential files

@@ -5,10 +5,23 @@ import {
   RefreshCw, 
   MapPin, 
   Fingerprint, 
-  Smartphone 
+  Smartphone,
+  Layers,
+  Download,
+  CheckCircle,
+  XCircle,
+  AlertCircle
 } from 'lucide-react';
 
-export default function Dashboard({ scorecard, onNavigate }) {
+export default function Dashboard({ 
+  scorecard, 
+  onNavigate,
+  swActive,
+  manifestValid,
+  deferredPrompt,
+  beforeInstallFired,
+  clearDeferredPrompt
+}) {
   // Client capability and environment checking
   const getOS = () => {
     const ua = navigator.userAgent;
@@ -37,6 +50,14 @@ export default function Dashboard({ scorecard, onNavigate }) {
     if (/applewebkit/i.test(ua)) return 'Blink / WebKit';
     if (/gecko/i.test(ua)) return 'Gecko';
     return 'Unknown Engine';
+  };
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`[PWA Diagnostic] Install prompt outcome: ${outcome}`);
+    clearDeferredPrompt();
   };
 
   const currentOS = getOS();
@@ -107,6 +128,69 @@ export default function Dashboard({ scorecard, onNavigate }) {
 
   return (
     <div className="fade-in">
+      {/* PWA Installability Diagnostics Card */}
+      <div className="card" style={{ borderLeft: '4px solid var(--secondary)' }}>
+        <h2 style={{ fontSize: '1.25rem', marginBottom: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Layers size={20} style={{ color: 'var(--secondary)' }} />
+          PWA Installability Diagnostics
+        </h2>
+        
+        <div className="info-row">
+          <span className="info-label">Service Worker Registered</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: swActive ? 'var(--color-success)' : 'var(--color-danger)', fontWeight: 600 }}>
+            {swActive ? <CheckCircle size={14} /> : <XCircle size={14} />}
+            {swActive ? 'YES' : 'NO'}
+          </span>
+        </div>
+
+        <div className="info-row">
+          <span className="info-label">Manifest Loaded & Valid</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: manifestValid ? 'var(--color-success)' : 'var(--color-danger)', fontWeight: 600 }}>
+            {manifestValid ? <CheckCircle size={14} /> : <XCircle size={14} />}
+            {manifestValid ? 'YES (manifest.webmanifest)' : 'NO'}
+          </span>
+        </div>
+
+        <div className="info-row">
+          <span className="info-label">beforeinstallprompt fired</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: beforeInstallFired ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>
+            {beforeInstallFired ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+            {beforeInstallFired ? 'YES' : 'NO'}
+          </span>
+        </div>
+
+        <div className="info-row">
+          <span className="info-label">Installable (Chrome/Android)</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: deferredPrompt ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>
+            {deferredPrompt ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+            {deferredPrompt ? 'YES' : 'NO (or installed / iOS)'}
+          </span>
+        </div>
+
+        <div className="info-row" style={{ marginBottom: '1rem' }}>
+          <span className="info-label">Running as installed PWA</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: isInstalled ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>
+            {isInstalled ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+            {isInstalled ? 'YES' : 'NO (Browser Tab)'}
+          </span>
+        </div>
+
+        {deferredPrompt ? (
+          <button 
+            className="btn btn-secondary" 
+            onClick={handleInstallClick}
+            style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}
+          >
+            <Download size={18} />
+            Install PWA
+          </button>
+        ) : (
+          <p style={{ fontSize: '0.74rem', color: '#64748b', fontStyle: 'italic', marginTop: '0.25rem' }}>
+            * Note: iOS Safari does not support programmatic web install prompt. iPhone users must tap Safari's share action &gt; "Add to Home Screen".
+          </p>
+        )}
+      </div>
+
       {/* Device Info Panel */}
       <div className="card">
         <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
