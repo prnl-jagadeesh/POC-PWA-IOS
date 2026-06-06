@@ -11,7 +11,8 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Award
+  Award,
+  Radio
 } from 'lucide-react';
 
 export default function Dashboard({ 
@@ -115,6 +116,14 @@ export default function Dashboard({
       icon: Award,
       color: 'rgba(244, 63, 94, 0.15)',
       iconColor: '#f43f5e'
+    },
+    {
+      id: 'bluetooth',
+      title: 'Web Bluetooth API',
+      desc: 'Scan and connect to local BLE hardware peripherals',
+      icon: Radio,
+      color: 'rgba(6, 182, 212, 0.15)',
+      iconColor: '#06b6d4'
     }
   ];
 

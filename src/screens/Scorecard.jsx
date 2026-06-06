@@ -19,6 +19,8 @@ export default function Scorecard({ scorecard, updateScorecard, resetScorecard }
         return 'PublicKeyCredential' in window ? 'Yes' : 'No';
       case 'badge':
         return 'setAppBadge' in navigator ? 'Yes (requires standalone)' : 'No';
+      case 'bluetooth':
+        return 'bluetooth' in navigator ? 'Yes' : 'No';
       default:
         return 'Unknown';
     }
@@ -60,6 +62,12 @@ export default function Scorecard({ scorecard, updateScorecard, resetScorecard }
       name: 'App Badge API',
       risk: 'Medium',
       riskDesc: 'Requires installed PWA standalone mode. Supported on iOS standalone since iOS 16.4.'
+    },
+    {
+      id: 'bluetooth',
+      name: 'Web Bluetooth API',
+      risk: 'High',
+      riskDesc: 'Completely blocked on iOS WebKit engine; supported on Android Chrome.'
     }
   ];
 

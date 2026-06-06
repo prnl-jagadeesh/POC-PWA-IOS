@@ -6,8 +6,9 @@ import CameraQRTest from './screens/CameraQRTest';
 import BackgroundSyncTest from './screens/BackgroundSyncTest';
 import GPSTest from './screens/GPSTest';
 import BiometricTest from './screens/BiometricTest';
-import Scorecard from './screens/Scorecard';
 import BadgeTest from './screens/BadgeTest';
+import BluetoothTest from './screens/BluetoothTest';
+import Scorecard from './screens/Scorecard';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState('dashboard');
@@ -185,6 +186,14 @@ export default function App() {
       case 'badge':
         return (
           <BadgeTest 
+            scorecard={scorecard} 
+            updateScorecard={updateScorecard} 
+            onBack={() => setActiveScreen('dashboard')} 
+          />
+        );
+      case 'bluetooth':
+        return (
+          <BluetoothTest 
             scorecard={scorecard} 
             updateScorecard={updateScorecard} 
             onBack={() => setActiveScreen('dashboard')} 
