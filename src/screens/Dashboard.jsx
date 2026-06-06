@@ -10,7 +10,8 @@ import {
   Download,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Award
 } from 'lucide-react';
 
 export default function Dashboard({ 
@@ -106,6 +107,14 @@ export default function Dashboard({
       icon: Fingerprint,
       color: 'rgba(6, 182, 212, 0.15)',
       iconColor: '#06b6d4'
+    },
+    {
+      id: 'badge',
+      title: 'App Badge API',
+      desc: 'Set and clear device app icon badge counts',
+      icon: Award,
+      color: 'rgba(244, 63, 94, 0.15)',
+      iconColor: '#f43f5e'
     }
   ];
 

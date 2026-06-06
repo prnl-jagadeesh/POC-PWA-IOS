@@ -17,6 +17,8 @@ export default function Scorecard({ scorecard, updateScorecard, resetScorecard }
         return 'geolocation' in navigator ? 'Yes (Foreground only)' : 'No';
       case 'biometric':
         return 'PublicKeyCredential' in window ? 'Yes' : 'No';
+      case 'badge':
+        return 'setAppBadge' in navigator ? 'Yes (requires standalone)' : 'No';
       default:
         return 'Unknown';
     }
@@ -52,6 +54,12 @@ export default function Scorecard({ scorecard, updateScorecard, resetScorecard }
       name: 'Biometric Login', 
       risk: 'Medium',
       riskDesc: 'WebAuthn/Passkeys require secure context (HTTPS) and are domain-bound.' 
+    },
+    {
+      id: 'badge',
+      name: 'App Badge API',
+      risk: 'Medium',
+      riskDesc: 'Requires installed PWA standalone mode. Supported on iOS standalone since iOS 16.4.'
     }
   ];
 

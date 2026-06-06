@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronLeft, RefreshCw, AlertTriangle, AlertCircle, Play, CheckCircle2, User } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChevronLeft, RefreshCw, AlertTriangle, AlertCircle, Play, CheckCircle2, User, Terminal, Wifi, WifiOff } from 'lucide-react';
 import { addActivity, getActivities, clearActivities, updateActivityStatus } from '../utils/db';
 
 export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack }) {
   const [swSupported, setSwSupported] = useState('serviceWorker' in navigator);
-  const [syncSupported, setSyncSupported] = useState('SyncManager' in window);
+  const [syncSupported, setSyncSupported] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   
   // Form States
   const [employeeId, setEmployeeId] = useState('');
@@ -12,6 +13,7 @@ export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack 
   
   // Logs and feedback
   const [logs, setLogs] = useState([]);
+  const [diagLogs, setDiagLogs] = useState([]);
   const [infoMsg, setInfoMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -22,10 +24,17 @@ export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack 
   const [testStatus, setTestStatus] = useState(currentScore.status);
   const [testNotes, setTestNotes] = useState(currentScore.notes);
 
+  const consoleEndRef = useRef(null);
+
+  const addDiagLog = (message) => {
+    const time = new Date().toLocaleTimeString();
+    const formatted = `[${time}] ${message}`;
+    setDiagLogs(prev => [...prev, formatted]);
+  };
+
   const loadLogs = async () => {
     try {
       const records = await getActivities();
-      // Sort records (newest first)
       setLogs(records.reverse());
     } catch (err) {
       console.error('Failed to load database logs:', err);
@@ -34,25 +43,69 @@ export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack 
 
   useEffect(() => {
     loadLogs();
+
+    // 1. Log Initial capability statuses
+    addDiagLog(`Diagnostic console booted up.`);
+    addDiagLog(`Connection Status: Device is currently ${isOnline ? 'ONLINE' : 'OFFLINE'}.`);
+    addDiagLog(`Service Worker API Support: ${swSupported ? 'Supported' : 'Not Supported'}`);
     
-    // Listen for Service Worker completion events to refresh UI automatically
-    const handleSyncComplete = (event) => {
+    // 2. Check for registration.sync capability
+    if (swSupported) {
+      navigator.serviceWorker.ready.then((reg) => {
+        const hasSync = 'sync' in reg;
+        setSyncSupported(hasSync);
+        addDiagLog(`Background Sync (registration.sync) Support: ${hasSync ? 'Supported' : 'Not Supported'}`);
+        if (!hasSync) {
+          addDiagLog('Sync unsupported: registration.sync is missing. Browser does not allow deferred background execution.');
+        }
+      }).catch(err => {
+        addDiagLog(`SW Error: Failed to query registration: ${err.message}`);
+      });
+    } else {
+      addDiagLog('Sync unsupported: Service Workers are missing in this browser scope.');
+    }
+
+    // 3. Listen to Online/Offline Connection Events
+    const handleOnline = () => {
+      setIsOnline(true);
+      addDiagLog('Online/offline status: Connection restored. Device is ONLINE.');
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      addDiagLog('Online/offline status: Connection lost. Device is OFFLINE.');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // 4. Listen for Service Worker completed background sync events
+    const handleSyncCompleteMessage = (event) => {
       if (event.data && event.data.type === 'SYNC_COMPLETE') {
         loadLogs();
-        setInfoMsg('Background Sync completed! IndexedDB logs refreshed.');
+        addDiagLog('Sync completed: Service Worker processed offline activities and updated status.');
+        setInfoMsg('Automatic background sync complete! Records status updated.');
       }
     };
     
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleSyncComplete);
+      navigator.serviceWorker.addEventListener('message', handleSyncCompleteMessage);
     }
 
     return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.removeEventListener('message', handleSyncComplete);
+        navigator.serviceWorker.removeEventListener('message', handleSyncCompleteMessage);
       }
     };
   }, []);
+
+  // Scroll terminal logs automatically
+  useEffect(() => {
+    if (consoleEndRef.current) {
+      consoleEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [diagLogs]);
 
   // Sync scorecard status
   useEffect(() => {
@@ -77,52 +130,58 @@ export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack 
     };
 
     try {
-      // 1. Store locally in IndexedDB
+      // Store record in IndexedDB
       await addActivity(payload);
+      addDiagLog(`Record queued: ID=${payload.employeeId}, Activity="${payload.activity}" stored locally inside IndexedDB.`);
       setActivityText('');
       await loadLogs();
 
-      // 2. Register for background sync (where supported)
+      // Trigger automatic background sync registration if active
       if (syncSupported && swSupported) {
         const registration = await navigator.serviceWorker.ready;
         await registration.sync.register('sync-activities');
-        setInfoMsg('Activity recorded! PWA registered background sync tag ("sync-activities"). If offline, browser will sync when connection returns.');
+        addDiagLog('Sync registered: Registered sync tag "sync-activities" with Service Worker.');
+        setInfoMsg('Activity saved! Registered background sync tag. Turn off Airplane Mode to trigger sync.');
       } else {
-        // Fallback for unsupported devices
-        setErrorMsg('Saved to IndexedDB, but Background Sync API is not supported. Use "Try Manual Sync" below.');
+        addDiagLog('Sync unsupported: registration.sync is missing. Auto-sync will not trigger.');
+        setErrorMsg('Saved to IndexedDB. Background Sync is Not Supported. Manual sync required.');
       }
     } catch (err) {
-      console.error(err);
+      addDiagLog(`Error: Saving queue failed: ${err.message}`);
       setErrorMsg(`Storage failed: ${err.message}`);
     }
   };
 
-  // Triggers synchronization manually
+  // Triggers manual sync loop
   const handleManualSync = async () => {
     setErrorMsg('');
     setInfoMsg('');
     setSyncing(true);
+    addDiagLog('Manual Sync: Triggering manual queue synchronization...');
 
     try {
       const records = await getActivities();
       const pending = records.filter(r => r.status === 'pending');
 
       if (pending.length === 0) {
+        addDiagLog('Manual Sync: No pending logs found to synchronize.');
         setInfoMsg('No pending offline logs found.');
         setSyncing(false);
         return;
       }
 
-      // Simulate network syncing
+      // Simulate a network upload delay (1.2 seconds)
       setTimeout(async () => {
         for (const record of pending) {
           await updateActivityStatus(record.id, 'synced');
         }
         await loadLogs();
+        addDiagLog(`Sync completed: Synchronized ${pending.length} pending records manually.`);
         setInfoMsg(`Manually synchronized ${pending.length} logs successfully!`);
         setSyncing(false);
       }, 1200);
     } catch (err) {
+      addDiagLog(`Manual Sync Error: ${err.message}`);
       setErrorMsg(`Manual sync error: ${err.message}`);
       setSyncing(false);
     }
@@ -131,12 +190,14 @@ export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack 
   const handleClearLogs = async () => {
     if (window.confirm('Clear all logs?')) {
       await clearActivities();
+      addDiagLog('IndexedDB logs cleared.');
       loadLogs();
     }
   };
 
   const handleSaveScorecard = () => {
     updateScorecard(testId, testStatus, testNotes);
+    addDiagLog(`Scorecard rating updated to: ${testStatus.toUpperCase()}`);
   };
 
   return (
@@ -151,19 +212,27 @@ export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack 
           Background Sync Test
         </h2>
 
-        {/* Feature Capability Display */}
+        {/* Feature Capability Display (Task 3) */}
         <div style={{ marginBottom: '1rem' }}>
           <div className="info-row">
-            <span className="info-label">Service Worker Registration</span>
+            <span className="info-label">Service Worker Status</span>
             <span className={`badge ${swSupported ? 'supported' : 'unsupported'}`}>
-              {swSupported ? 'Active' : 'Missing'}
+              {swSupported ? 'Supported' : 'Not Supported'}
             </span>
           </div>
           
           <div className="info-row">
-            <span className="info-label">SyncManager (Background Sync)</span>
+            <span className="info-label">Background Sync (`registration.sync`)</span>
             <span className={`badge ${syncSupported ? 'supported' : 'unsupported'}`}>
-              {syncSupported ? 'Supported' : 'Unsupported'}
+              {syncSupported ? 'Supported' : 'Not Supported'}
+            </span>
+          </div>
+
+          <div className="info-row">
+            <span className="info-label">Network Connection Status</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: isOnline ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600, fontSize: '0.85rem' }}>
+              {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
+              {isOnline ? 'ONLINE' : 'OFFLINE'}
             </span>
           </div>
         </div>
@@ -258,6 +327,32 @@ export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack 
         )}
       </div>
 
+      {/* Diagnostics Console Panel */}
+      <div className="card" style={{ padding: '0.75rem' }}>
+        <h3 style={{ fontSize: '0.9rem', color: '#f8fafc', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <Terminal size={16} style={{ color: 'var(--accent-purple)' }} />
+          Diagnostics Console
+        </h3>
+        
+        <div style={{
+          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+          borderRadius: '8px',
+          padding: '0.6rem 0.8rem',
+          height: '140px',
+          overflowY: 'auto',
+          fontFamily: 'monospace',
+          fontSize: '0.74rem',
+          color: '#c084fc',
+          border: '1px solid rgba(255, 255, 255, 0.05)',
+          lineHeight: '1.4'
+        }}>
+          {diagLogs.map((log, index) => (
+            <div key={index} style={{ wordBreak: 'break-all', marginBottom: '0.2rem' }}>{log}</div>
+          ))}
+          <div ref={consoleEndRef} />
+        </div>
+      </div>
+
       {/* Quick Scorecard Control */}
       <div className="card" style={{ borderTop: '2px solid var(--accent-purple)' }}>
         <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Capability Evaluation</h3>
@@ -282,7 +377,7 @@ export default function BackgroundSyncTest({ scorecard, updateScorecard, onBack 
           <input 
             type="text" 
             className="form-input" 
-            placeholder="e.g. SyncManager is missing on iOS Safari, required manual fallback"
+            placeholder="e.g. registration.sync is missing on iOS Safari, required manual fallback"
             value={testNotes}
             onChange={(e) => setTestNotes(e.target.value)}
           />
