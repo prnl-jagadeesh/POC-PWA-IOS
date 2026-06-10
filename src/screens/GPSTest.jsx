@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, MapPin, AlertCircle, Play, Square, Navigation, CheckCircle2 } from 'lucide-react';
+import { ChevronLeft, MapPin, AlertCircle, Play, Square, Navigation, CheckCircle2, Map, RefreshCw, Sliders, History, Sparkles } from 'lucide-react';
 
 export default function GPSTest({ scorecard, updateScorecard, onBack }) {
   const [coords, setCoords] = useState(null);
   const [tracking, setTracking] = useState(false);
   const [error, setError] = useState('');
   const [permissionState, setPermissionState] = useState('unknown');
+  
+  // Map zoom and simulation states
+  const [zoom, setZoom] = useState(15);
+  const [simulationMode, setSimulationMode] = useState(false);
+  const [coordsHistory, setCoordsHistory] = useState([]);
 
   const watchIdRef = useRef(null);
 
@@ -46,9 +51,17 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
     };
   }, []);
 
+  // Track coordinates history
+  const addToHistory = (newCoords) => {
+    setCoordsHistory(prev => {
+      const exists = prev.some(c => c.latitude === newCoords.latitude && c.longitude === newCoords.longitude);
+      if (exists) return prev;
+      return [newCoords, ...prev].slice(0, 5);
+    });
+  };
+
   const handleGetCurrentLocation = () => {
     setError('');
-    setCoords(null);
     
     if (!('geolocation' in navigator)) {
       setError('Geolocation is not supported by this browser.');
@@ -63,12 +76,24 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setCoords({
-          latitude: position.coords.latitude.toFixed(6),
-          longitude: position.coords.longitude.toFixed(6),
+        let lat = position.coords.latitude;
+        let lng = position.coords.longitude;
+        
+        // Inject offset if simulation mode is active on initial load
+        if (simulationMode) {
+          lat += (Math.random() - 0.5) * 0.001;
+          lng += (Math.random() - 0.5) * 0.001;
+        }
+
+        const newCoords = {
+          latitude: lat.toFixed(6),
+          longitude: lng.toFixed(6),
           accuracy: position.coords.accuracy.toFixed(1),
           timestamp: new Date(position.timestamp).toLocaleTimeString()
-        });
+        };
+
+        setCoords(newCoords);
+        addToHistory(newCoords);
         setPermissionState('granted');
       },
       (err) => {
@@ -81,7 +106,6 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
 
   const startTracking = () => {
     setError('');
-    setCoords(null);
     setTracking(true);
 
     if (!('geolocation' in navigator)) {
@@ -98,12 +122,23 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        setCoords({
-          latitude: position.coords.latitude.toFixed(6),
-          longitude: position.coords.longitude.toFixed(6),
+        let lat = position.coords.latitude;
+        let lng = position.coords.longitude;
+        
+        if (simulationMode) {
+          lat += (Math.random() - 0.5) * 0.0006;
+          lng += (Math.random() - 0.5) * 0.0006;
+        }
+
+        const newCoords = {
+          latitude: lat.toFixed(6),
+          longitude: lng.toFixed(6),
           accuracy: position.coords.accuracy.toFixed(1),
           timestamp: new Date(position.timestamp).toLocaleTimeString()
-        });
+        };
+
+        setCoords(newCoords);
+        addToHistory(newCoords);
         setPermissionState('granted');
       },
       (err) => {
@@ -123,6 +158,30 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
     setTracking(false);
   };
 
+  // Simulate a manual shift update (refresh) to verify pinpoint changes dynamically
+  const handleSimulateShift = () => {
+    if (!coords) {
+      setError('Please obtain a baseline location first before generating shifts.');
+      return;
+    }
+
+    const latOffset = (Math.random() - 0.5) * 0.0015;
+    const lngOffset = (Math.random() - 0.5) * 0.0015;
+
+    const nextLat = (parseFloat(coords.latitude) + latOffset).toFixed(6);
+    const nextLng = (parseFloat(coords.longitude) + lngOffset).toFixed(6);
+
+    const newCoords = {
+      latitude: nextLat,
+      longitude: nextLng,
+      accuracy: coords.accuracy,
+      timestamp: new Date().toLocaleTimeString()
+    };
+
+    setCoords(newCoords);
+    addToHistory(newCoords);
+  };
+
   const handleSaveScorecard = () => {
     updateScorecard(testId, testStatus, testNotes);
   };
@@ -133,13 +192,13 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
         <ChevronLeft size={18} /> Back to Dashboard
       </button>
 
+      {/* Geolocation Card */}
       <div className="card">
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
           <MapPin size={24} style={{ color: 'var(--accent-blue)' }} />
           GPS Geolocation Test
         </h2>
 
-        {/* Info Box detailing iOS background limits */}
         <div className="alert alert-info" style={{ marginBottom: '1.25rem' }}>
           <span>💡</span>
           <div>
@@ -150,7 +209,6 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
           </div>
         </div>
 
-        {/* Geolocation Permissions state */}
         <div className="info-row" style={{ marginBottom: '1.25rem' }}>
           <span className="info-label">Browser Geolocation Permission</span>
           <span className={`badge ${
@@ -161,7 +219,6 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
           </span>
         </div>
 
-        {/* Control Buttons */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
           <button className="btn btn-primary" onClick={handleGetCurrentLocation} disabled={tracking}>
             <Navigation size={18} /> Get Current Location
@@ -178,7 +235,6 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
           )}
         </div>
 
-        {/* Error Messaging */}
         {error && (
           <div className="alert alert-danger" style={{ marginBottom: '1.25rem' }}>
             <AlertCircle size={20} style={{ flexShrink: 0 }} />
@@ -186,7 +242,6 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
           </div>
         )}
 
-        {/* Display Output Coordinates */}
         {coords && (
           <div className="card" style={{ background: 'rgba(15, 23, 42, 0.45)', margin: 0, border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
@@ -232,7 +287,106 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
         )}
       </div>
 
-      {/* Quick Scorecard Control */}
+      {/* Dynamic Google Maps View */}
+      <div className="card">
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+          <Map size={20} style={{ color: 'var(--secondary)' }} />
+          Google Map View
+        </h3>
+
+        {/* Map Rendering Panel */}
+        <div className="map-frame-container">
+          {coords ? (
+            <iframe
+              className="map-iframe"
+              title="Google Map Geolocation"
+              src={`https://maps.google.com/maps?q=${coords.latitude},${coords.longitude}&z=${zoom}&output=embed`}
+              allowFullScreen
+              loading="lazy"
+            />
+          ) : (
+            <div className="map-placeholder">
+              <MapPin className="map-placeholder-icon" size={48} />
+              <p style={{ fontSize: '0.9rem', color: '#cbd5e1', fontWeight: 600 }}>Map Awaiting Location</p>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.25rem' }}>
+                Fetch current coordinates above to center the pinpoint.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Interactive Controls */}
+        {coords && (
+          <>
+            <div className="zoom-control">
+              <div className="zoom-header">
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <Sliders size={14} /> Zoom Level
+                </span>
+                <span style={{ fontWeight: 600 }}>{zoom}x</span>
+              </div>
+              <input
+                type="range"
+                min="10"
+                max="20"
+                value={zoom}
+                onChange={(e) => setZoom(parseInt(e.target.value))}
+                className="zoom-slider"
+              />
+            </div>
+
+            {/* Simulation Controls */}
+            <div className="simulation-box">
+              <div className="simulation-header">
+                <span className="simulation-title">
+                  <Sparkles size={16} style={{ color: 'var(--accent-purple)' }} />
+                  GPS Shift Simulation
+                </span>
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={simulationMode}
+                    onChange={(e) => setSimulationMode(e.target.checked)}
+                  />
+                  <span className="toggle-slider"></span>
+                </label>
+              </div>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '0.75rem' }}>
+                Simulate location movement. Enabling this applies a tiny random coordinate offset on each refresh to shift the map pin.
+              </p>
+              <button className="btn btn-outline" onClick={handleSimulateShift} style={{ padding: '0.5rem', fontSize: '0.8rem' }}>
+                <RefreshCw size={14} /> Simulate Random Move
+              </button>
+            </div>
+
+            {/* Location History list */}
+            {coordsHistory.length > 0 && (
+              <div className="history-container">
+                <span className="history-title" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <History size={12} /> Recent Map Pins
+                </span>
+                <div className="history-chips">
+                  {coordsHistory.map((item, idx) => {
+                    const isActive = coords.latitude === item.latitude && coords.longitude === item.longitude;
+                    return (
+                      <div
+                        key={idx}
+                        className={`history-chip ${isActive ? 'active' : ''}`}
+                        onClick={() => setCoords(item)}
+                      >
+                        <span>Lat: {item.latitude}, Lng: {item.longitude}</span>
+                        <span className="history-chip-time">{item.timestamp}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Capability Evaluation */}
       <div className="card" style={{ borderTop: '2px solid var(--accent-blue)' }}>
         <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>Capability Evaluation</h3>
         
