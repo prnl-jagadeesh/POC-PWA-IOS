@@ -64,7 +64,7 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
     setError('');
     
     if (!('geolocation' in navigator)) {
-      setError('Geolocation is not supported by this browser.');
+      setError('Geolocation is not supported by this browser/OS context. Verify you are using HTTPS.');
       return;
     }
 
@@ -74,31 +74,48 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
       maximumAge: 0
     };
 
+    const runSuccess = (position) => {
+      let lat = position.coords.latitude;
+      let lng = position.coords.longitude;
+      
+      // Inject offset if simulation mode is active on initial load
+      if (simulationMode) {
+        lat += (Math.random() - 0.5) * 0.001;
+        lng += (Math.random() - 0.5) * 0.001;
+      }
+
+      const newCoords = {
+        latitude: lat.toFixed(6),
+        longitude: lng.toFixed(6),
+        accuracy: position.coords.accuracy.toFixed(1),
+        timestamp: new Date(position.timestamp).toLocaleTimeString()
+      };
+
+      setCoords(newCoords);
+      addToHistory(newCoords);
+      setPermissionState('granted');
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        let lat = position.coords.latitude;
-        let lng = position.coords.longitude;
+      runSuccess,
+      (err) => {
+        console.warn('High accuracy GPS fetch failed. Code:', err.code, 'Attempting low accuracy WiFi/Cellular fallback...');
         
-        // Inject offset if simulation mode is active on initial load
-        if (simulationMode) {
-          lat += (Math.random() - 0.5) * 0.001;
-          lng += (Math.random() - 0.5) * 0.001;
+        if (err.code === 1) {
+          setError(`Location Permission Denied. Please reset browser location access settings or check iOS Settings -> Privacy & Security -> Location Services.`);
+          setPermissionState('denied');
+          return;
         }
 
-        const newCoords = {
-          latitude: lat.toFixed(6),
-          longitude: lng.toFixed(6),
-          accuracy: position.coords.accuracy.toFixed(1),
-          timestamp: new Date(position.timestamp).toLocaleTimeString()
-        };
-
-        setCoords(newCoords);
-        addToHistory(newCoords);
-        setPermissionState('granted');
-      },
-      (err) => {
-        console.error('Location grab failed:', err);
-        setError(`Location error: ${err.message}. Please verify GPS toggle is enabled.`);
+        // Attempt fallback with coarse coordinates
+        navigator.geolocation.getCurrentPosition(
+          runSuccess,
+          (fallbackErr) => {
+            console.error('Coarse fallback Geolocation failed:', fallbackErr);
+            setError(`GPS query failed: ${fallbackErr.message} (Code: ${fallbackErr.code}). Please verify device Location Services are enabled.`);
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 }
+        );
       },
       options
     );
@@ -116,35 +133,56 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
 
     const options = {
       enableHighAccuracy: true,
-      timeout: 15000,
+      timeout: 12000,
       maximumAge: 0
     };
 
+    const runSuccess = (position) => {
+      let lat = position.coords.latitude;
+      let lng = position.coords.longitude;
+      
+      if (simulationMode) {
+        lat += (Math.random() - 0.5) * 0.0006;
+        lng += (Math.random() - 0.5) * 0.0006;
+      }
+
+      const newCoords = {
+        latitude: lat.toFixed(6),
+        longitude: lng.toFixed(6),
+        accuracy: position.coords.accuracy.toFixed(1),
+        timestamp: new Date(position.timestamp).toLocaleTimeString()
+      };
+
+      setCoords(newCoords);
+      addToHistory(newCoords);
+      setPermissionState('granted');
+    };
+
     watchIdRef.current = navigator.geolocation.watchPosition(
-      (position) => {
-        let lat = position.coords.latitude;
-        let lng = position.coords.longitude;
-        
-        if (simulationMode) {
-          lat += (Math.random() - 0.5) * 0.0006;
-          lng += (Math.random() - 0.5) * 0.0006;
+      runSuccess,
+      (err) => {
+        console.warn('Watch location high accuracy failed. Code:', err.code, 'Attempting low accuracy watch fallback...');
+        if (err.code === 1) {
+          setError(`Location watch Permission Denied.`);
+          stopTracking();
+          return;
         }
 
-        const newCoords = {
-          latitude: lat.toFixed(6),
-          longitude: lng.toFixed(6),
-          accuracy: position.coords.accuracy.toFixed(1),
-          timestamp: new Date(position.timestamp).toLocaleTimeString()
-        };
+        // Clear existing high-accuracy watch
+        if (watchIdRef.current !== null) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+        }
 
-        setCoords(newCoords);
-        addToHistory(newCoords);
-        setPermissionState('granted');
-      },
-      (err) => {
-        console.error('Location stream failed:', err);
-        setError(`Location tracking error: ${err.message}`);
-        stopTracking();
+        // Start coarse-accuracy tracking
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          runSuccess,
+          (fallbackErr) => {
+            console.error('Location stream completely failed:', fallbackErr);
+            setError(`Tracking stream error: ${fallbackErr.message} (Code: ${fallbackErr.code})`);
+            stopTracking();
+          },
+          { enableHighAccuracy: false, timeout: 18000, maximumAge: 30000 }
+        );
       },
       options
     );
@@ -186,11 +224,25 @@ export default function GPSTest({ scorecard, updateScorecard, onBack }) {
     updateScorecard(testId, testStatus, testNotes);
   };
 
+  const isSecure = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
   return (
     <div className="fade-in">
       <button className="btn-back" onClick={onBack}>
         <ChevronLeft size={18} /> Back to Dashboard
       </button>
+
+      {!isSecure && (
+        <div className="alert alert-danger" style={{ marginBottom: '1.25rem' }}>
+          <AlertCircle size={20} style={{ flexShrink: 0 }} />
+          <div>
+            <strong>Insecure Connection (HTTP):</strong>
+            <p style={{ color: 'inherit', fontSize: '0.82rem', marginTop: '0.2rem' }}>
+              iOS Safari blocks the Geolocation API completely on insecure connections. If you are testing this on your physical iPhone using a local network IP (like <code>http://192.168.x.x:5175</code>), GPS coordinates will fail. You must access the PWA over HTTPS (e.g. Vercel, ngrok, or local SSL certificates) for location services to work.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Geolocation Card */}
       <div className="card">
