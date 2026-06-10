@@ -152,3 +152,83 @@ function syncActivities() {
     };
   });
 }
+
+// Listen for background push notifications and update the app badge dynamically
+self.addEventListener('push', (event) => {
+  let badgeCount = 1;
+  let title = 'New Notification';
+  let body = 'You have a new message.';
+  let icon = '/icon-192.png';
+
+  if (event.data) {
+    try {
+      const payload = event.data.json();
+      
+      // Extract badge count from payload data or notification root
+      if (payload.data && payload.data.badge) {
+        badgeCount = parseInt(payload.data.badge, 10);
+      } else if (payload.badge) {
+        badgeCount = parseInt(payload.badge, 10);
+      } else if (payload.notification && payload.notification.badge) {
+        badgeCount = parseInt(payload.notification.badge, 10);
+      }
+      
+      if (payload.notification) {
+        title = payload.notification.title || title;
+        body = payload.notification.body || body;
+        icon = payload.notification.icon || icon;
+      } else if (payload.data) {
+        title = payload.data.title || title;
+        body = payload.data.body || body;
+      }
+    } catch (e) {
+      // Fallback for plain text notification payloads
+      body = event.data.text();
+    }
+  }
+
+  const promises = [];
+
+  // Update app icon badge if Web App Badging API is supported
+  if ('setAppBadge' in self.navigator) {
+    promises.push(self.navigator.setAppBadge(badgeCount).catch(err => {
+      console.error('Failed to set app badge from Service Worker push event:', err);
+    }));
+  }
+
+  // Display native visual notification banner (Required on iOS in background)
+  if (self.registration.showNotification) {
+    promises.push(self.registration.showNotification(title, {
+      body: body,
+      icon: icon,
+      badge: icon,
+      vibrate: [100, 50, 100],
+      data: {
+        url: '/'
+      }
+    }));
+  }
+
+  event.waitUntil(Promise.all(promises));
+});
+
+// Handle notification click to open or focus the PWA client window
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Focus if window already open
+      for (const client of clientList) {
+        if (client.url === '/' && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Or open a new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow('/');
+      }
+    })
+  );
+});
+
