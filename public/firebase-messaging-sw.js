@@ -42,6 +42,22 @@ if (hasRealConfig) {
         data: payload.data
       };
 
+      // Extract and update badge count from FCM payload
+      let badgeCount = 1;
+      if (payload.data && payload.data.badge) {
+        badgeCount = parseInt(payload.data.badge, 10);
+      } else if (payload.badge) {
+        badgeCount = parseInt(payload.badge, 10);
+      } else if (payload.notification && payload.notification.badge) {
+        badgeCount = parseInt(payload.notification.badge, 10);
+      }
+
+      if ('setAppBadge' in self.navigator) {
+        self.navigator.setAppBadge(badgeCount).catch(err => {
+          console.error('[firebase-messaging-sw.js] Failed to update app badge:', err);
+        });
+      }
+
       self.registration.showNotification(notificationTitle, notificationOptions);
     });
   } catch (error) {
@@ -50,3 +66,50 @@ if (hasRealConfig) {
 } else {
   console.log('[firebase-messaging-sw.js] Service Worker running in offline Simulator Mode. (Define real credentials to activate FCM).');
 }
+
+// Fallback push event listener to catch badge updates
+self.addEventListener('push', (event) => {
+  if (event.data) {
+    try {
+      const payload = event.data.json();
+      let badgeCount = null;
+      
+      if (payload.data && payload.data.badge) {
+        badgeCount = parseInt(payload.data.badge, 10);
+      } else if (payload.badge) {
+        badgeCount = parseInt(payload.badge, 10);
+      } else if (payload.notification && payload.notification.badge) {
+        badgeCount = parseInt(payload.notification.badge, 10);
+      }
+      
+      if (badgeCount !== null && 'setAppBadge' in self.navigator) {
+        event.waitUntil(self.navigator.setAppBadge(badgeCount).catch(err => {
+          console.error('[firebase-messaging-sw.js] Generic push badging error:', err);
+        }));
+      }
+    } catch (e) {
+      // Ignored if text-only payload
+    }
+  }
+});
+
+// Handle notification click to open or focus the PWA client window
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Focus if window already open
+      for (const client of clientList) {
+        if (client.url === '/' && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Or open a new window
+      if (self.clients.openWindow) {
+        return self.clients.openWindow('/');
+      }
+    })
+  );
+});
+
