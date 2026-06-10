@@ -57,7 +57,7 @@ export default function BadgeTest({ scorecard, updateScorecard, onBack }) {
     setCustomNotes(syncNotes.custom);
   }, [scorecard]);
 
-  // Boot diagnostics logs
+  // Boot diagnostics logs and load persisted badge count
   useEffect(() => {
     addLog('App Badge Count API Support check initialized.');
     addLog(`navigator.setAppBadge: ${'setAppBadge' in navigator ? 'SUPPORTED' : 'UNSUPPORTED'}`);
@@ -68,14 +68,41 @@ export default function BadgeTest({ scorecard, updateScorecard, onBack }) {
     } else {
       addLog('Badge API is not supported. All actions will run in Simulator Mode.');
     }
-  }, []);
 
+    // Load persisted badge value from cache
+    if ('caches' in window) {
+      caches.open('pwa-badge-cache')
+        .then(cache => cache.match('/badge-count'))
+        .then(response => {
+          if (response) return response.text();
+        })
+        .then(text => {
+          if (text) {
+            const count = parseInt(text, 10) || 0;
+            setCurrentCount(count);
+            addLog(`Loaded persisted background badge count from cache: ${count}`);
+          }
+        })
+        .catch(err => console.warn('Failed to load badge count from cache:', err));
+    }
+  }, []);
+ 
   // Scroll terminal logs automatically
   useEffect(() => {
     if (consoleEndRef.current) {
       consoleEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs]);
+
+  // Sync count update to persistent Cache Storage (lock-free)
+  const syncBadgeDb = (count) => {
+    if (!('caches' in window)) return;
+    caches.open('pwa-badge-cache')
+      .then(cache => {
+        cache.put('/badge-count', new Response(count.toString()));
+      })
+      .catch(err => console.warn('Failed to sync badge count to cache:', err));
+  };
 
   const handleSetBadge = async (count) => {
     try {
@@ -86,6 +113,7 @@ export default function BadgeTest({ scorecard, updateScorecard, onBack }) {
         addLog(`[Simulator] Mock Badge set: Badge count updated to ${count}.`);
       }
       setCurrentCount(count);
+      syncBadgeDb(count);
     } catch (err) {
       addLog(`Error: setAppBadge failed: ${err.message}`);
     }
@@ -101,6 +129,7 @@ export default function BadgeTest({ scorecard, updateScorecard, onBack }) {
         addLog(`[Simulator] Mock Badge increment: Badge count updated to ${nextCount}.`);
       }
       setCurrentCount(nextCount);
+      syncBadgeDb(nextCount);
     } catch (err) {
       addLog(`Error: Increment failed: ${err.message}`);
     }
@@ -115,6 +144,7 @@ export default function BadgeTest({ scorecard, updateScorecard, onBack }) {
         addLog('[Simulator] Mock Badge clear: Badge count cleared.');
       }
       setCurrentCount(0);
+      syncBadgeDb(0);
     } catch (err) {
       addLog(`Error: clearAppBadge failed: ${err.message}`);
     }

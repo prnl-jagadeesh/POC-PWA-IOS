@@ -153,63 +153,101 @@ function syncActivities() {
   });
 }
 
+// Helpers for persistent badge count tracking in Cache Storage (lock-free & reliable in background contexts)
+async function getPersistedBadgeCount() {
+  try {
+    const cache = await caches.open('pwa-badge-cache');
+    const response = await cache.match('/badge-count');
+    if (response) {
+      const text = await response.text();
+      return parseInt(text, 10) || 0;
+    }
+  } catch (e) {
+    console.warn('Failed to read badge count from cache:', e);
+  }
+  return 0;
+}
+
+async function setPersistedBadgeCount(count) {
+  try {
+    const cache = await caches.open('pwa-badge-cache');
+    await cache.put('/badge-count', new Response(count.toString()));
+  } catch (e) {
+    console.warn('Failed to write badge count to cache:', e);
+  }
+}
+
 // Listen for background push notifications and update the app badge dynamically
 self.addEventListener('push', (event) => {
-  let badgeCount = 1;
-  let title = 'New Notification';
-  let body = 'You have a new message.';
-  let icon = '/icon-192.png';
+  event.waitUntil((async () => {
+    let payloadBadgeCount = null;
+    let title = 'New Notification';
+    let body = 'You have a new message.';
+    let icon = '/icon-192.png';
 
-  if (event.data) {
-    try {
-      const payload = event.data.json();
-      
-      // Extract badge count from payload data or notification root
-      if (payload.data && payload.data.badge) {
-        badgeCount = parseInt(payload.data.badge, 10);
-      } else if (payload.badge) {
-        badgeCount = parseInt(payload.badge, 10);
-      } else if (payload.notification && payload.notification.badge) {
-        badgeCount = parseInt(payload.notification.badge, 10);
+    if (event.data) {
+      try {
+        const payload = event.data.json();
+        
+        // Extract badge count from payload data or notification root
+        if (payload.data && payload.data.badge) {
+          payloadBadgeCount = parseInt(payload.data.badge, 10);
+        } else if (payload.badge) {
+          payloadBadgeCount = parseInt(payload.badge, 10);
+        } else if (payload.notification && payload.notification.badge) {
+          payloadBadgeCount = parseInt(payload.notification.badge, 10);
+        }
+        
+        if (payload.notification) {
+          title = payload.notification.title || title;
+          body = payload.notification.body || body;
+          icon = payload.notification.icon || icon;
+        } else if (payload.data) {
+          title = payload.data.title || title;
+          body = payload.data.body || body;
+        }
+      } catch (e) {
+        // Fallback for plain text notification payloads
+        body = event.data.text();
       }
-      
-      if (payload.notification) {
-        title = payload.notification.title || title;
-        body = payload.notification.body || body;
-        icon = payload.notification.icon || icon;
-      } else if (payload.data) {
-        title = payload.data.title || title;
-        body = payload.data.body || body;
-      }
-    } catch (e) {
-      // Fallback for plain text notification payloads
-      body = event.data.text();
     }
-  }
 
-  const promises = [];
+    // Resolve final badge count (auto-increment if none provided in push)
+    let finalBadgeCount = 1;
+    if (payloadBadgeCount !== null && !isNaN(payloadBadgeCount)) {
+      finalBadgeCount = payloadBadgeCount;
+    } else {
+      const currentPersisted = await getPersistedBadgeCount();
+      finalBadgeCount = currentPersisted + 1;
+    }
+    
+    // Save updated count to Cache Storage
+    await setPersistedBadgeCount(finalBadgeCount);
 
-  // Update app icon badge if Web App Badging API is supported
-  if ('setAppBadge' in self.navigator) {
-    promises.push(self.navigator.setAppBadge(badgeCount).catch(err => {
-      console.error('Failed to set app badge from Service Worker push event:', err);
-    }));
-  }
+    const promises = [];
 
-  // Display native visual notification banner (Required on iOS in background)
-  if (self.registration.showNotification) {
-    promises.push(self.registration.showNotification(title, {
-      body: body,
-      icon: icon,
-      badge: icon,
-      vibrate: [100, 50, 100],
-      data: {
-        url: '/'
-      }
-    }));
-  }
+    // Update app icon badge if Web App Badging API is supported
+    if ('setAppBadge' in self.navigator) {
+      promises.push(self.navigator.setAppBadge(finalBadgeCount).catch(err => {
+        console.error('Failed to set app badge from Service Worker push event:', err);
+      }));
+    }
 
-  event.waitUntil(Promise.all(promises));
+    // Display native visual notification banner (Required on iOS in background)
+    if (self.registration.showNotification) {
+      promises.push(self.registration.showNotification(title, {
+        body: body,
+        icon: icon,
+        badge: icon,
+        vibrate: [100, 50, 100],
+        data: {
+          url: '/'
+        }
+      }));
+    }
+
+    await Promise.all(promises);
+  })());
 });
 
 // Handle notification click to open or focus the PWA client window
@@ -231,4 +269,5 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+
 

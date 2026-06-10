@@ -21,7 +21,7 @@ export default function App() {
   const [manifestValid, setManifestValid] = useState(false);
   const [beforeInstallFired, setBeforeInstallFired] = useState(false);
 
-  // Load Scorecard from LocalStorage on mount
+  // Load Scorecard from LocalStorage and reset badges on mount
   useEffect(() => {
     const cached = localStorage.getItem('pwa_ios_poc_scorecard');
     if (cached) {
@@ -35,6 +35,18 @@ export default function App() {
     // Check if running as installed standalone PWA
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
     setIsPwa(isStandalone);
+
+    // Reset app badge count visually on launch
+    if ('clearAppBadge' in navigator) {
+      navigator.clearAppBadge().catch(err => console.warn('Failed to clear app badge on mount:', err));
+    }
+
+    // Reset app badge count in persistent cache (lock-free)
+    if ('caches' in window) {
+      caches.open('pwa-badge-cache').then(cache => {
+        cache.put('/badge-count', new Response('0'));
+      }).catch(err => console.warn('Failed to reset cache badge count:', err));
+    }
   }, []);
 
   // Register main Service Worker
