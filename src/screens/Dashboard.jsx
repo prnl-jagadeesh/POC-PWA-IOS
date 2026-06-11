@@ -12,7 +12,8 @@ import {
   XCircle,
   AlertCircle,
   Award,
-  Radio
+  Radio,
+  Upload
 } from 'lucide-react';
 
 export default function Dashboard({ 
@@ -124,6 +125,14 @@ export default function Dashboard({
       icon: Radio,
       color: 'rgba(6, 182, 212, 0.15)',
       iconColor: '#06b6d4'
+    },
+    {
+      id: 'file',
+      title: 'File Upload & Storage',
+      desc: 'Inspect metadata, previews, and save attachments offline',
+      icon: Upload,
+      color: 'rgba(99, 102, 241, 0.15)',
+      iconColor: '#6366f1'
     }
   ];
 

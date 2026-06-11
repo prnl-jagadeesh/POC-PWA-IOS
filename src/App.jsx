@@ -8,6 +8,7 @@ import GPSTest from './screens/GPSTest';
 import BiometricTest from './screens/BiometricTest';
 import BadgeTest from './screens/BadgeTest';
 import BluetoothTest from './screens/BluetoothTest';
+import FileUploadTest from './screens/FileUploadTest';
 import Scorecard from './screens/Scorecard';
 
 export default function App() {
@@ -206,6 +207,14 @@ export default function App() {
       case 'bluetooth':
         return (
           <BluetoothTest 
+            scorecard={scorecard} 
+            updateScorecard={updateScorecard} 
+            onBack={() => setActiveScreen('dashboard')} 
+          />
+        );
+      case 'file':
+        return (
+          <FileUploadTest 
             scorecard={scorecard} 
             updateScorecard={updateScorecard} 
             onBack={() => setActiveScreen('dashboard')} 

@@ -21,6 +21,8 @@ export default function Scorecard({ scorecard, updateScorecard, resetScorecard }
         return 'setAppBadge' in navigator ? 'Yes (requires standalone)' : 'No';
       case 'bluetooth':
         return 'bluetooth' in navigator ? 'Yes' : 'No';
+      case 'file':
+        return 'FileReader' in window && 'indexedDB' in window ? 'Yes' : 'No';
       default:
         return 'Unknown';
     }
@@ -68,6 +70,12 @@ export default function Scorecard({ scorecard, updateScorecard, resetScorecard }
       name: 'Web Bluetooth API',
       risk: 'High',
       riskDesc: 'Completely blocked on iOS WebKit engine; supported on Android Chrome.'
+    },
+    {
+      id: 'file',
+      name: 'File System & Storage',
+      risk: 'Low',
+      riskDesc: 'Highly supported offline file caching via FileReader and local IndexedDB base64 storage.'
     }
   ];
 
