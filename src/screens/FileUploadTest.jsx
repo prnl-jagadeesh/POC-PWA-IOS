@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronLeft, Upload, File, FileText, Image, HardDrive, Download, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ChevronLeft, Upload, File, FileText, Image, HardDrive, Download, Trash2, CheckCircle2, AlertCircle, Camera } from 'lucide-react';
 
 export default function FileUploadTest({ scorecard, updateScorecard, onBack }) {
   const [file, setFile] = useState(null);
@@ -9,11 +9,17 @@ export default function FileUploadTest({ scorecard, updateScorecard, onBack }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
+  // Camera WebRTC states
+  const [isCameraActive, setIsCameraActive] = useState(false);
+
   // API support state
   const fileReaderSupported = typeof FileReader !== 'undefined';
   const indexedDbSupported = typeof indexedDB !== 'undefined';
 
   const fileInputRef = useRef(null);
+  const canvasRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
 
   // Scorecard rating setup
   const testId = 'file';
@@ -31,6 +37,15 @@ export default function FileUploadTest({ scorecard, updateScorecard, onBack }) {
     setTestStatus(currentScore.status);
     setTestNotes(currentScore.notes);
   }, [scorecard]);
+
+  // Clean up camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   // IndexedDB - open and retrieve offline stored files
   const loadOfflineFiles = () => {
@@ -57,6 +72,92 @@ export default function FileUploadTest({ scorecard, updateScorecard, onBack }) {
         console.error('Failed to read files from IndexedDB:', err);
       }
     };
+  };
+
+  // WebRTC Live Camera Controls
+  const startCamera = async () => {
+    setError('');
+    setSuccess('');
+    setFile(null);
+    setFileContent('');
+    setIsCameraActive(true);
+    
+    try {
+      const constraints = {
+        video: { facingMode: 'environment' } // Prefer rear camera on mobile
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      
+      // Delay slightly to allow element to render and mount ref
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.setAttribute('playsinline', 'true');
+          videoRef.current.play().catch(err => {
+            console.error('Video play error:', err);
+          });
+        }
+      }, 100);
+    } catch (err) {
+      console.error('Camera access error:', err);
+      setError(`Camera access failed: ${err.message}. Note: Camera requires HTTPS context on mobile.`);
+      setIsCameraActive(false);
+    }
+  };
+
+  const stopCamera = () => {
+    setIsCameraActive(false);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  // Capture frame from video stream and convert to virtual file
+  const capturePhoto = () => {
+    if (!videoRef.current || !canvasRef.current) {
+      setError('Camera components not ready.');
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+
+    // Match aspect ratio
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+
+    try {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      
+      // Calculate file size from base64 characters length
+      const sizeInBytes = Math.round((dataUrl.length * 3) / 4);
+
+      const timestamp = new Date().toLocaleTimeString().replace(/:/g, '-');
+      const filename = `camera_snap_${timestamp}.jpg`;
+
+      setFile({
+        name: filename,
+        size: (sizeInBytes / 1024).toFixed(1) + ' KB',
+        type: 'image/jpeg',
+        lastModified: new Date().toLocaleDateString()
+      });
+      setFileType('image');
+      setFileContent(dataUrl);
+      setSuccess(`Photo captured successfully! Ready to save offline.`);
+      stopCamera();
+    } catch (err) {
+      console.error('Draw frame error:', err);
+      setError(`Capture failed: ${err.message}`);
+      stopCamera();
+    }
   };
 
   // Handle file selection
@@ -113,7 +214,7 @@ export default function FileUploadTest({ scorecard, updateScorecard, onBack }) {
   // Save selected file locally to IndexedDB
   const handleSaveOffline = () => {
     if (!file || !fileContent) {
-      setError('Please select a file first.');
+      setError('Please select or capture a file first.');
       return;
     }
 
@@ -203,34 +304,65 @@ export default function FileUploadTest({ scorecard, updateScorecard, onBack }) {
           </span>
         </div>
 
-        {/* Upload Container */}
-        <div 
-          onClick={() => fileInputRef.current?.click()}
-          style={{
-            border: '2px dashed var(--glass-border)',
-            borderRadius: '12px',
-            padding: '2rem 1.5rem',
-            textAlign: 'center',
-            cursor: 'pointer',
-            backgroundColor: 'rgba(15, 23, 42, 0.25)',
-            transition: 'var(--transition-smooth)',
-            marginBottom: '1.25rem'
-          }}
-          onMouseOver={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
-          onMouseOut={(e) => e.currentTarget.style.borderColor = 'var(--glass-border)'}
-        >
-          <Upload size={38} style={{ color: 'var(--primary)', marginBottom: '0.75rem', opacity: 0.8 }} />
-          <p style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f1f5f9' }}>Click to Choose File</p>
-          <p style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.25rem' }}>
-            Supports Images, Text, PDFs, and Binary Files
-          </p>
-          <input 
-            type="file" 
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-          />
-        </div>
+        {/* Upload Viewport Switch */}
+        {isCameraActive ? (
+          <div style={{ marginBottom: '1.25rem' }}>
+            <div className="scanner-viewport" style={{ aspectRatio: '4 / 3', height: '250px' }}>
+              <video ref={videoRef} className="scanner-video" />
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem' }}>
+              <button className="btn btn-secondary" onClick={capturePhoto}>
+                <Camera size={16} /> Snap Picture
+              </button>
+              <button className="btn btn-outline" onClick={stopCamera}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              border: '2px dashed var(--glass-border)',
+              borderRadius: '12px',
+              padding: '2rem 1.5rem',
+              textAlign: 'center',
+              cursor: 'pointer',
+              backgroundColor: 'rgba(15, 23, 42, 0.25)',
+              transition: 'var(--transition-smooth)',
+              marginBottom: '1.25rem'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
+            onMouseOut={(e) => e.currentTarget.style.borderColor = 'var(--glass-border)'}
+          >
+            <Upload size={38} style={{ color: 'var(--primary)', marginBottom: '0.75rem', opacity: 0.8 }} />
+            <p style={{ fontSize: '0.95rem', fontWeight: 600, color: '#f1f5f9' }}>Click to Choose File</p>
+            <p style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.25rem' }}>
+              Or use Camera button below to snap live photos
+            </p>
+          </div>
+        )}
+
+        {/* Input trigger buttons */}
+        {!isCameraActive && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            <button className="btn btn-outline" onClick={() => fileInputRef.current?.click()}>
+              <Upload size={16} /> Select File
+            </button>
+            
+            <button className="btn btn-primary" onClick={startCamera}>
+              <Camera size={16} /> Snap Photo
+            </button>
+
+            <input 
+              type="file" 
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+            />
+          </div>
+        )}
 
         {error && (
           <div className="alert alert-danger" style={{ marginBottom: '1rem' }}>
@@ -250,7 +382,7 @@ export default function FileUploadTest({ scorecard, updateScorecard, onBack }) {
         {file && (
           <div className="card" style={{ background: 'rgba(15, 23, 42, 0.45)', border: '1px solid rgba(255,255,255,0.05)', margin: '0 0 1.25rem 0' }}>
             <h4 style={{ fontSize: '0.85rem', color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
-              Selected File Info
+              Attachment Details
             </h4>
 
             <div className="info-row">
@@ -315,6 +447,9 @@ export default function FileUploadTest({ scorecard, updateScorecard, onBack }) {
           </div>
         )}
       </div>
+
+      {/* Hidden Canvas used for processing */}
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
 
       {/* Offline Storage Queue Card */}
       <div className="card">
